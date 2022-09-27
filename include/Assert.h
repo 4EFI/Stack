@@ -3,7 +3,7 @@
 
 #include <stdio.h>
 
-FILE* AssertFileOut = stderr;
+static FILE* AssertFileOut = stderr;
 
 #define Assert(condition, ...)                          \
     if (!(condition))                                   \
