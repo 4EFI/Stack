@@ -8,6 +8,7 @@
 
 #include "Stack.h"
 #include "Assert.h"
+#include "LOG.h"
 
 //---------------------------------------------------------------------------
 
@@ -27,14 +28,34 @@ FILE* StackFileOut = stderr;
 
 Elem_t StackDataPoisonValue = 0xBAAAAAAD;
 
+unsigned long long int StackLeftCanaryValue  = 0xBAADF00D;
+unsigned long long int StackRightCanaryValue = 0xDEADDEAD;
+
 //---------------------------------------------------------------------------
+
+enum StackErrors 
+{
+    NULL_DATA_PTR        = (1 << 0),
+    INVALID_SIZE         = (1 << 1),
+    INVALID_CAPACITY     = (1 << 2),
+    LEFT_CANARY_CHANGED  = (1 << 3),
+    RIGHT_CANARY_CHANGED = (1 << 4)
+};
+
+static const char* ErrorLines[] = {"Data null ptr",
+                                   "Invalid size",
+                                   "Invalid capacity",
+                                   "Left canary was changed",
+                                   "Right canary was changed"};
 
 int _StackCtor (Stack_t* stack)
 { 
     Assert (stack != NULL, 0);
+
+    stack->canaryLeft = StackLeftCanaryValue;
     
     stack->data           = NULL;
-    stack->stepResizeUp   = 1.1;
+    stack->stepResizeUp   = 2;
     stack->stepResizeDown = 1.5;
     stack->size           = 0;
     stack->capacity       = 0;
@@ -42,6 +63,8 @@ int _StackCtor (Stack_t* stack)
     StackResize (stack, 1);
 
     stack->errStatus  = 0;
+
+    stack->canaryRight = StackRightCanaryValue;
 
     StackDump (stack);
 
@@ -61,7 +84,7 @@ int StackErrHandler (Stack_t* stack)
         stack->errStatus |= StackErrors::NULL_DATA_PTR;
     }
     
-    if (stack->size < 0 || stack->size >= stack->capacity)
+    if (stack->size <= 0 || stack->size >= stack->capacity)
     {
         stack->errStatus |= StackErrors::INVALID_SIZE;
     }
@@ -71,12 +94,22 @@ int StackErrHandler (Stack_t* stack)
         stack->errStatus |= StackErrors::INVALID_CAPACITY;
     }
 
+    if (stack->canaryLeft != StackLeftCanaryValue)
+    {
+        stack->errStatus |= StackErrors::LEFT_CANARY_CHANGED;
+    }
+
+    if (stack->canaryRight != StackRightCanaryValue)
+    {
+        stack->errStatus |= StackErrors::RIGHT_CANARY_CHANGED;
+    }
+
     return 1;
 }
 
 //---------------------------------------------------------------------------
 
-int StackErrPrint (Stack_t* stack, size_t indent)
+int StackErrPrint (Stack_t* stack, int indent)
 {
     Assert (stack != NULL, 0);
 
@@ -139,17 +172,23 @@ void _StackDump (Stack_t* stack)
 
         fprintf (StackFileOut, "%*s{\n", TabSize, "");
         {
-            for (int i = 0; i < stack->capacity; i++)
+            for (size_t i = 0; i < stack->capacity; i++)
             {
                 bool isEmpty = (i >= stack->size || stack->data[i] == StackDataPoisonValue);
             
-                fprintf (StackFileOut, "%*s%s[%d] = ", 
+                fprintf (StackFileOut, "%*s%s[%ld] = ", 
                                         TabSize * 2, "",  
                                         isEmpty ? " " : "*", i);
 
                 // Print value                        
-                if(isEmpty) fprintf (StackFileOut, "%s\n", (stack->data[i] == 0) ? "0" : "NAN (POISON)");
-                else        fprintf (StackFileOut, "%d\n",  stack->data[i]);
+                if(stack->data[i] == StackDataPoisonValue) 
+                {
+                    fprintf (StackFileOut, "%s\n", "NAN (POISON)");
+                }
+                else     
+                {   
+                    fprintf (StackFileOut, "%d\n",  stack->data[i]);
+                }
             }
         }
         fprintf (StackFileOut, "%*s}\n", TabSize, "");
@@ -166,16 +205,19 @@ void StackResize (Stack_t* stack, size_t num)
 {
     Assert (stack != NULL);
 
+    // No resize
+    if (stack->capacity == num) return;
+
     StackErrHandler (stack);
     StackDump       (stack);
 
     if (num <= 0) return;
     
-    stack->data = (Elem_t*)Recalloc (stack->data, num, sizeof (Elem_t));
+    stack->data = (Elem_t*)Recalloc (stack->data, stack->capacity, num, sizeof (Elem_t));
 
-    // Fill data with poison
+    // Fill data with poison (increase data)
     #ifndef NDUMP
-
+    
     if (stack->capacity < num)
     {
         for (int i = stack->capacity; i < num; i++)
@@ -217,6 +259,21 @@ int StackPush (Stack_t* stack, Elem_t value)
 
 Elem_t StackPop (Stack_t* stack)
 {
+    Assert (stack != NULL, 0);
+
+    StackErrHandler (stack);
+    StackDump       (stack);
+
+    if (stack->size > 0) 
+    {
+        stack->size--;        
+
+        return stack->data[stack->size];
+    }
+    else
+    {
+        return StackDataPoisonValue;
+    }
 
 }
 
@@ -245,17 +302,19 @@ void PrintfDividers (char divideSym, int numDividers, FILE* file)
 
 //---------------------------------------------------------------------------
 
-void* Recalloc (void* arr, size_t num, size_t size)
+void* Recalloc (void* arr, size_t curNum, size_t newNum, size_t size)
 {
+    if (curNum == newNum) return arr;
+
     void* arrNew = NULL;
-    
-    if (num > 0) arrNew = calloc (num, size);
+
+    if (newNum > 0) arrNew = calloc (newNum, size);
 
     if (arrNew == NULL) return NULL;
 
-    if (arr != NULL && arrNew != NULL) 
+    if (arr != NULL) 
     {  
-        memcpy (arrNew, arr, num);
+        memcpy (arrNew, arr, (curNum < newNum ? curNum : newNum) * size);
         free   (arr);
     }
 

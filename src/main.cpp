@@ -4,6 +4,7 @@
 
 #include "Assert.h"
 #include "Stack.h"
+#include "LOG.h"
 
 //---------------------------------------------------------------------------
 
@@ -17,7 +18,13 @@ int main()
     StackPush (&stack, 5);
     StackPush (&stack, 6);
 
-    StackDump (&stack);
+    Elem_t a = StackPop (&stack);
+
+    FLOG ("Cur stack value = %d", a);
+
+    a = StackPop (&stack);
+
+    FLOG ("Cur stack value = %d", a);
 }
 
 //---------------------------------------------------------------------------

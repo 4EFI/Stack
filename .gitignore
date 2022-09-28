@@ -1,5 +1,7 @@
 .vscode
+LOG.txt
 main
 main.exe
 main.out
 lib/
+LOG/lib/

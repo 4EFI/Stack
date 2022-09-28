@@ -21,19 +21,10 @@ extern int         CurLine;
 
 //---------------------------------------------------------------------------
 
-enum StackErrors 
-{
-    NULL_DATA_PTR    = (1 << 0),
-    INVALID_SIZE     = (1 << 1),
-    INVALID_CAPACITY = (1 << 2),
-};
-
-static const char* ErrorLines[] = {"Data null ptr",
-                                   "Invalid size",
-                                   "Invalid capacity"};
-
 struct Stack_t
 {
+    unsigned long long int canaryLeft;
+    
     Elem_t* data;
 
     double stepResizeUp;
@@ -43,6 +34,8 @@ struct Stack_t
     size_t capacity;
 
     unsigned long long int errStatus;
+
+    unsigned long long int canaryRight;
 };
 
 //---------------------------------------------------------------------------
@@ -51,11 +44,12 @@ int  _StackCtor      (Stack_t* stack);
 void _StackDump      (Stack_t* stack);
 
 int  StackErrHandler (Stack_t* stack);
-int  StackErrPrint   (Stack_t* stack, size_t indent = 0);
+int  StackErrPrint   (Stack_t* stack, int indent = 0);
 
 void StackResize     (Stack_t* stack, size_t num);
 
-int  StackPush       (Stack_t* stack, Elem_t value);    
+int    StackPush     (Stack_t* stack, Elem_t value);    
+Elem_t StackPop      (Stack_t* stack);
 
 //---------------------------------------------------------------------------
 
@@ -65,7 +59,7 @@ void PrintfDividers (char divideSym, int numDividers, FILE* file);
 
 //---------------------------------------------------------------------------
 
-void* Recalloc (void* arr, size_t num, size_t size);
+void* Recalloc (void* arr, size_t curNum, size_t newNum, size_t size);
 
 //---------------------------------------------------------------------------
 
