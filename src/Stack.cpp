@@ -12,16 +12,6 @@
 
 //---------------------------------------------------------------------------
 
-const char* MainFileName  = NULL;
-const char* MainFuncName  = NULL;
-const char* MainStackName = NULL;
-
-const char* CurFileName   = NULL;
-const char* CurFuncName   = NULL;
-int         CurLine       = 0;
-
-//---------------------------------------------------------------------------
-
 FILE* StackFileOut = stderr;
 
 //---------------------------------------------------------------------------
@@ -30,6 +20,12 @@ Elem_t StackDataPoisonValue = 0xBAAAAAAD;
 
 unsigned long long int StackLeftCanaryValue  = 0xBAADF00D;
 unsigned long long int StackRightCanaryValue = 0xDEADDEAD;
+
+//---------------------------------------------------------------------------
+
+const char* CurFileName = NULL;
+const char* CurFuncName = NULL;
+int         CurLine     = 0;
 
 //---------------------------------------------------------------------------
 
@@ -48,17 +44,23 @@ static const char* ErrorLines[] = {"Data null ptr",
                                    "Left canary was changed",
                                    "Right canary was changed"};
 
-int _StackCtor (Stack_t* stack)
+int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName, 
+                                              const char* mainFuncName, 
+                                              const char* mainStackName)
 { 
     Assert (stack != NULL, 0);
 
     stack->canaryLeft = StackLeftCanaryValue;
+
+    stack->stackInfo.mainFileName   = mainFileName;
+    stack->stackInfo.mainFuncName   = mainFileName;
+    stack->stackInfo.mainStackName  = mainStackName;
     
-    stack->data           = NULL;
-    stack->stepResizeUp   = 2;
-    stack->stepResizeDown = 1.5;
-    stack->size           = 0;
-    stack->capacity       = 0;
+    stack->data                     = NULL;
+    stack->stackInfo.stepResizeUp   = 2;
+    stack->stackInfo.stepResizeDown = 2;
+    stack->size                     = 0;
+    stack->capacity                 = 0;
 
     StackResize (stack, 1);
 
@@ -69,6 +71,16 @@ int _StackCtor (Stack_t* stack)
     StackDump (stack);
 
     return 1;
+}
+
+//---------------------------------------------------------------------------
+
+int StackHashProtection (Stack_t* stack, size_t stackSize, void* hashValuePtr, size_t size)
+{
+    Assert (stack        != NULL, -1);
+    Assert (hashValuePtr != NULL, -2);
+
+    
 }
 
 //---------------------------------------------------------------------------
@@ -84,7 +96,7 @@ int StackErrHandler (Stack_t* stack)
         stack->errStatus |= StackErrors::NULL_DATA_PTR;
     }
     
-    if (stack->size <= 0 || stack->size >= stack->capacity)
+    if (stack->size <= 0 || stack->size > stack->capacity)
     {
         stack->errStatus |= StackErrors::INVALID_SIZE;
     }
@@ -148,9 +160,9 @@ void _StackDump (Stack_t* stack)
     fprintf (StackFileOut, "Stack[%p] (%s) \"%s\" at %s at %s\n", 
                             stack, 
                             stack->errStatus == 0 ? "ok" : "ERROR",
-                            MainStackName + 1, // Remove & in name
-                            MainFileName,
-                            MainFuncName);
+                            stack->stackInfo.mainStackName + 1, // Remove & in name
+                            stack->stackInfo.mainFileName,
+                            stack->stackInfo.mainFuncName);
 
     if (stack->errStatus)
     {
@@ -245,7 +257,7 @@ int StackPush (Stack_t* stack, Elem_t value)
 
     if(stack->size >= stack->capacity) 
     {
-        StackResize (stack, size_t((stack->capacity) * (stack->stepResizeUp)));
+        StackResize (stack, size_t((stack->capacity) * (stack->stackInfo.stepResizeUp)));
     }
 
     stack->data[stack->size] = value;
@@ -266,7 +278,15 @@ Elem_t StackPop (Stack_t* stack)
 
     if (stack->size > 0) 
     {
-        stack->size--;        
+        stack->size--;   
+
+        if (stack->capacity - stack->size > size_t(stack->capacity / stack->stackInfo.stepResizeDown))   
+        {
+            StackResize (stack, size_t(stack->capacity / stack->stackInfo.stepResizeDown));
+        }  
+
+        StackErrHandler (stack);
+        StackDump       (stack);
 
         return stack->data[stack->size];
     }
@@ -274,7 +294,6 @@ Elem_t StackPop (Stack_t* stack)
     {
         return StackDataPoisonValue;
     }
-
 }
 
 //---------------------------------------------------------------------------

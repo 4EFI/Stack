@@ -11,7 +11,7 @@
 int main()
 {
     Stack_t     stack = {0};
-    StackCtor (&stack);
+    StackCtor (&stack, 2);
 
     StackPush (&stack, 5);
     StackPush (&stack, 6);
@@ -19,6 +19,12 @@ int main()
     StackPush (&stack, 6);
 
     Elem_t a = StackPop (&stack);
+
+    FLOG ("Cur stack value = %d", a);
+
+    a = StackPop (&stack);
+
+    StackPush (&stack, 10);
 
     FLOG ("Cur stack value = %d", a);
 
