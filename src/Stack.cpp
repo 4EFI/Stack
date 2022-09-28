@@ -35,14 +35,16 @@ enum StackErrors
     INVALID_SIZE         = (1 << 1),
     INVALID_CAPACITY     = (1 << 2),
     LEFT_CANARY_CHANGED  = (1 << 3),
-    RIGHT_CANARY_CHANGED = (1 << 4)
+    RIGHT_CANARY_CHANGED = (1 << 4),
+    INVALID_HASH_VALUE   = (1 << 5)
 };
 
 static const char* ErrorLines[] = {"Data null ptr",
                                    "Invalid size",
                                    "Invalid capacity",
                                    "Left canary was changed",
-                                   "Right canary was changed"};
+                                   "Right canary was changed",
+                                   "Hash was changed"};
 
 int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName, 
                                               const char* mainFuncName, 
@@ -50,23 +52,33 @@ int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName,
 { 
     Assert (stack != NULL, 0);
 
+    // Canary left protection 
     stack->canaryLeft = StackLeftCanaryValue;
-
-    stack->stackInfo.mainFileName   = mainFileName;
-    stack->stackInfo.mainFuncName   = mainFileName;
-    stack->stackInfo.mainStackName  = mainStackName;
-    
-    stack->data                     = NULL;
-    stack->stackInfo.stepResizeUp   = 2;
-    stack->stackInfo.stepResizeDown = 2;
-    stack->size                     = 0;
-    stack->capacity                 = 0;
-
-    StackResize (stack, 1);
-
-    stack->errStatus  = 0;
-
+    // Canary right protection
     stack->canaryRight = StackRightCanaryValue;
+
+    stack->info.mainFileName   = mainFileName;
+    stack->info.mainFuncName   = mainFuncName;
+    stack->info.mainStackName  = mainStackName;
+
+    stack->info.numHashIgnore = 2;
+
+    stack->info.arrHashIgnore = (HashIgnore*)calloc (stack->info.numHashIgnore, sizeof (HashIgnore));
+
+    stack->info.arrHashIgnore[0] = { &stack->info.hashValue, sizeof (unsigned long long int) };
+    stack->info.arrHashIgnore[1] = { &stack->info.errStatus, sizeof (unsigned long long int) };
+    
+    stack->data                = NULL;
+    stack->info.stepResizeUp   = 2;
+    stack->info.stepResizeDown = 2;
+    stack->size                = 0;
+    stack->capacity            = 0;
+
+    StackResize (stack, dataSize);
+
+    stack->info.errStatus = 0;
+
+    stack->info.hashValue = StackHashProtection (stack); 
 
     StackDump (stack);
 
@@ -75,12 +87,9 @@ int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName,
 
 //---------------------------------------------------------------------------
 
-int StackHashProtection (Stack_t* stack, size_t stackSize, void* hashValuePtr, size_t size)
-{
-    Assert (stack        != NULL, -1);
-    Assert (hashValuePtr != NULL, -2);
-
-    
+unsigned long long int StackHashProtection (Stack_t* stack)
+{  
+    return HashProtection (stack, sizeof (Stack_t), stack->info.arrHashIgnore, stack->info.numHashIgnore);
 }
 
 //---------------------------------------------------------------------------
@@ -89,31 +98,36 @@ int StackErrHandler (Stack_t* stack)
 {
     Assert (stack != NULL, 0);
     
-    stack->errStatus = 0;    
+    stack->info.errStatus = 0;    
     
     if (!stack->data) 
     {       
-        stack->errStatus |= StackErrors::NULL_DATA_PTR;
+        stack->info.errStatus |= StackErrors::NULL_DATA_PTR;
     }
     
-    if (stack->size <= 0 || stack->size > stack->capacity)
+    if (stack->size < 0 || stack->size > stack->capacity)
     {
-        stack->errStatus |= StackErrors::INVALID_SIZE;
+        stack->info.errStatus |= StackErrors::INVALID_SIZE;
     }
 
     if (stack->capacity < 0)
     {
-        stack->errStatus |= StackErrors::INVALID_CAPACITY;
+        stack->info.errStatus |= StackErrors::INVALID_CAPACITY;
     }
 
     if (stack->canaryLeft != StackLeftCanaryValue)
     {
-        stack->errStatus |= StackErrors::LEFT_CANARY_CHANGED;
+        stack->info.errStatus |= StackErrors::LEFT_CANARY_CHANGED;
     }
 
     if (stack->canaryRight != StackRightCanaryValue)
     {
-        stack->errStatus |= StackErrors::RIGHT_CANARY_CHANGED;
+        stack->info.errStatus |= StackErrors::RIGHT_CANARY_CHANGED;
+    }
+
+    if (stack->info.hashValue != StackHashProtection (stack))
+    {
+        stack->info.errStatus |= StackErrors::INVALID_HASH_VALUE;
     }
 
     return 1;
@@ -123,11 +137,11 @@ int StackErrHandler (Stack_t* stack)
 
 int StackErrPrint (Stack_t* stack, int indent)
 {
-    Assert (stack != NULL, 0);
+    Assert (stack != NULL, -1);
 
-    if (!stack->errStatus) return 1;
+    if (!stack->info.errStatus) return 1;
     
-    unsigned long long int errStatCopy = stack->errStatus;
+    unsigned long long int errStatCopy = stack->info.errStatus;
 
     int numLines = sizeof (ErrorLines) / sizeof (char*);
     
@@ -138,7 +152,7 @@ int StackErrPrint (Stack_t* stack, int indent)
         errStatCopy >>= 1;
     }
 
-    return 1;
+    return 0;
 }
 
 //---------------------------------------------------------------------------
@@ -159,12 +173,12 @@ void _StackDump (Stack_t* stack)
     
     fprintf (StackFileOut, "Stack[%p] (%s) \"%s\" at %s at %s\n", 
                             stack, 
-                            stack->errStatus == 0 ? "ok" : "ERROR",
-                            stack->stackInfo.mainStackName + 1, // Remove & in name
-                            stack->stackInfo.mainFileName,
-                            stack->stackInfo.mainFuncName);
+                            stack->info.errStatus == 0 ? "ok" : "ERROR",
+                            stack->info.mainStackName + 1, // Remove & in name
+                            stack->info.mainFileName,
+                            stack->info.mainFuncName);
 
-    if (stack->errStatus)
+    if (stack->info.errStatus)
     {
         fprintf (StackFileOut, "ERRORS:\n");
         fprintf (StackFileOut, "{\n");
@@ -177,8 +191,9 @@ void _StackDump (Stack_t* stack)
     fputs ("{\n", StackFileOut);
     {
     
-        fprintf (StackFileOut, "%*ssize     = %lu;\n",   TabSize, "", stack->size);
-        fprintf (StackFileOut, "%*scapacity = %lu;\n\n", TabSize, "", stack->capacity);
+        fprintf (StackFileOut, "%*shashValue = %llu;\n",  TabSize, "", stack->info.hashValue);
+        fprintf (StackFileOut, "%*ssize      = %lu;\n",   TabSize, "", stack->size);
+        fprintf (StackFileOut, "%*scapacity  = %lu;\n\n", TabSize, "", stack->capacity);
 
         fprintf (StackFileOut, "%*sdata[%p]\n", TabSize, "", stack->data);
 
@@ -188,7 +203,7 @@ void _StackDump (Stack_t* stack)
             {
                 bool isEmpty = (i >= stack->size || stack->data[i] == StackDataPoisonValue);
             
-                fprintf (StackFileOut, "%*s%s[%ld] = ", 
+                fprintf (StackFileOut, "%*s%s[%lu] = ", 
                                         TabSize * 2, "",  
                                         isEmpty ? " " : "*", i);
 
@@ -215,7 +230,7 @@ void _StackDump (Stack_t* stack)
 
 void StackResize (Stack_t* stack, size_t num)
 {
-    Assert (stack != NULL);
+    Assert (stack != NULL); 
 
     // No resize
     if (stack->capacity == num) return;
@@ -232,7 +247,7 @@ void StackResize (Stack_t* stack, size_t num)
     
     if (stack->capacity < num)
     {
-        for (int i = stack->capacity; i < num; i++)
+        for (size_t i = stack->capacity; i < num; i++)
         {
             stack->data[i] = StackDataPoisonValue;
         }
@@ -242,28 +257,31 @@ void StackResize (Stack_t* stack, size_t num)
 
     stack->capacity = num;
 
-    StackErrHandler (stack);
-    StackDump       (stack);
+    stack->info.hashValue = StackHashProtection (stack);
+
+    StackDump (stack);
 }
 
 //---------------------------------------------------------------------------
 
-int StackPush (Stack_t* stack, Elem_t value)
+void StackPush (Stack_t* stack, Elem_t value)
 {
-    Assert (stack != NULL, 0);
+    Assert (stack != NULL);
 
     StackErrHandler (stack);
     StackDump       (stack);
 
     if(stack->size >= stack->capacity) 
     {
-        StackResize (stack, size_t((stack->capacity) * (stack->stackInfo.stepResizeUp)));
+        StackResize (stack, size_t((stack->capacity) * (stack->info.stepResizeUp)));
     }
 
     stack->data[stack->size] = value;
 
     stack->size++;
 
+    stack->info.hashValue = StackHashProtection (stack);
+    
     StackDump (stack);
 }
 
@@ -280,20 +298,23 @@ Elem_t StackPop (Stack_t* stack)
     {
         stack->size--;   
 
-        if (stack->capacity - stack->size > size_t(stack->capacity / stack->stackInfo.stepResizeDown))   
+        if (stack->capacity - stack->size > size_t(stack->capacity / stack->info.stepResizeDown))   
         {
-            StackResize (stack, size_t(stack->capacity / stack->stackInfo.stepResizeDown));
+            StackResize (stack, size_t(stack->capacity / stack->info.stepResizeDown));
         }  
 
-        StackErrHandler (stack);
-        StackDump       (stack);
+        stack->info.hashValue = StackHashProtection (stack);
+        
+        StackDump (stack);
 
         return stack->data[stack->size];
     }
-    else
-    {
-        return StackDataPoisonValue;
-    }
+
+    stack->info.hashValue = StackHashProtection (stack);
+
+    StackDump (stack);
+    
+    return StackDataPoisonValue;
 }
 
 //---------------------------------------------------------------------------
@@ -338,6 +359,58 @@ void* Recalloc (void* arr, size_t curNum, size_t newNum, size_t size)
     }
 
     return arrNew;
+}
+
+//---------------------------------------------------------------------------
+
+size_t NumBytesHashIgnore (void* arr, HashIgnore* arrHashIgnore, size_t numHashIgnore)
+{
+    Assert (arr           != NULL, 0);
+    Assert (arrHashIgnore != NULL, 0);
+    
+    // Check Hash Ignored
+    for (size_t i = 0; i < numHashIgnore; i++)
+    {
+        if ((char*)arr == arrHashIgnore[i].ignorePtr)
+        {
+            return arrHashIgnore[i].size;  
+        }
+    }
+
+    return 0;
+}
+
+//---------------------------------------------------------------------------
+
+unsigned long long int HashProtection (void*  arr, 
+                                       size_t size, 
+                                       HashIgnore* arrHashIgnore,
+                                       size_t      numHashIgnore)
+{
+    Assert (arr != NULL, 0);
+
+    unsigned long long int hashValue = 0;
+
+    for (size_t i = 0; i < size; i++) 
+    {
+        size_t numBytesHashIgnore = 0;
+        
+        if (arr != NULL)
+        {
+            numBytesHashIgnore = NumBytesHashIgnore ((char*)arr + i, arrHashIgnore, numHashIgnore);
+        }
+
+        if (numBytesHashIgnore > 0) 
+        {
+            i += (numBytesHashIgnore - 1);
+
+            continue;
+        }
+
+        hashValue += ((*((char*)arr + i))*i);
+    }
+
+    return hashValue;
 }
 
 //---------------------------------------------------------------------------

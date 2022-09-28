@@ -20,6 +20,8 @@ int main()
 
     Elem_t a = StackPop (&stack);
 
+    //stack.size = 0;
+
     FLOG ("Cur stack value = %d", a);
 
     a = StackPop (&stack);
