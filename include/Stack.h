@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 
 //---------------------------------------------------------------------------
 
@@ -30,20 +31,21 @@ struct StackInfo
     const char* mainFuncName;
     const char* mainStackName;
 
-    double stepResizeUp;
-    double stepResizeDown;
+    double stepResize;
 
-    unsigned long long int errStatus;
-    unsigned long long int hashValue;
+    uint64_t errStatus;
+    uint64_t hashValue;
 
     int numHashIgnore; 
     HashIgnore* arrHashIgnore;
+
+    bool isStackValid;
 };
 
 struct Stack_t
 {
     // Canary left protection
-    unsigned long long int canaryLeft;
+    uint64_t canaryLeft;
     
     StackInfo info;
     
@@ -53,7 +55,7 @@ struct Stack_t
     size_t capacity;
 
     // Canary right protection
-    unsigned long long int canaryRight;
+    uint64_t canaryRight;
 };
 
 //---------------------------------------------------------------------------
@@ -63,7 +65,7 @@ int  _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName,
                                                const char* mainStackName);
 void _StackDump (Stack_t* stack);
 
-unsigned long long int StackHashProtection (Stack_t* stack);
+uint64_t StackHashProtection (Stack_t* stack);
 
 int  StackErrHandler (Stack_t* stack);
 int  StackErrPrint   (Stack_t* stack, int indent = 0);
@@ -75,9 +77,7 @@ Elem_t StackPop      (Stack_t* stack);
 
 //---------------------------------------------------------------------------
 
-void PutSpaces (int numSpaces, FILE* file = stdout);
-
-void PrintfDividers (char divideSym, int numDividers, FILE* file);
+int PrintSyms (char sym, int num, FILE* file);
 
 //---------------------------------------------------------------------------
 
@@ -85,10 +85,10 @@ void* Recalloc (void* arr, size_t curNum, size_t newNum, size_t size);
 
 size_t NumBytesHashIgnore (void* arr, HashIgnore* arrHashIgnore, size_t numHashIgnore);
 
-unsigned long long int HashProtection (void*  arr, 
-                                       size_t size, 
-                                       HashIgnore* arrHashIgnore,
-                                       size_t      numHashIgnore);
+uint64_t HashProtection (void*       arr, 
+                         size_t      size, 
+                         HashIgnore* arrHashIgnore,
+                         size_t      numHashIgnore);
 
 //---------------------------------------------------------------------------
 

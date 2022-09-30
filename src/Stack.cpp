@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #include "Stack.h"
 #include "Assert.h"
@@ -12,14 +13,14 @@
 
 //---------------------------------------------------------------------------
 
-FILE* StackFileOut = stderr;
+FILE* StackFileOut = NULL;
 
 //---------------------------------------------------------------------------
 
 Elem_t StackDataPoisonValue = 0xBAAAAAAD;
 
-unsigned long long int StackLeftCanaryValue  = 0xBAADF00D;
-unsigned long long int StackRightCanaryValue = 0xDEADDEAD;
+uint64_t StackLeftCanaryValue  = 0xBAADF00D;
+uint64_t StackRightCanaryValue = 0xDEADDEAD;
 
 //---------------------------------------------------------------------------
 
@@ -49,32 +50,38 @@ static const char* ErrorLines[] = {"Data null ptr",
 int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName, 
                                               const char* mainFuncName, 
                                               const char* mainStackName)
-{ 
+{   
     Assert (stack != NULL, 0);
+
+    StackFileOut = LogFile;
+
+    if (StackFileOut == NULL) StackFileOut = stderr;
 
     // Canary left protection 
     stack->canaryLeft = StackLeftCanaryValue;
     // Canary right protection
     stack->canaryRight = StackRightCanaryValue;
 
-    stack->info.mainFileName   = mainFileName;
-    stack->info.mainFuncName   = mainFuncName;
-    stack->info.mainStackName  = mainStackName;
+    stack->info.mainFileName  = mainFileName;
+    stack->info.mainFuncName  = mainFuncName;
+    stack->info.mainStackName = mainStackName;
+    stack->info.isStackValid  = true;
 
     stack->info.numHashIgnore = 2;
 
     stack->info.arrHashIgnore = (HashIgnore*)calloc (stack->info.numHashIgnore, sizeof (HashIgnore));
 
-    stack->info.arrHashIgnore[0] = { &stack->info.hashValue, sizeof (unsigned long long int) };
-    stack->info.arrHashIgnore[1] = { &stack->info.errStatus, sizeof (unsigned long long int) };
+    stack->info.arrHashIgnore[0] = { &stack->info.hashValue, sizeof (uint64_t) };
+    stack->info.arrHashIgnore[1] = { &stack->info.errStatus, sizeof (uint64_t) };
     
-    stack->data                = NULL;
-    stack->info.stepResizeUp   = 2;
-    stack->info.stepResizeDown = 2;
-    stack->size                = 0;
-    stack->capacity            = 0;
+    stack->data            = NULL;
+    stack->info.stepResize = 2;
+    stack->size            = 0;
+    stack->capacity        = 0;
 
-    StackResize (stack, dataSize);
+    stack->info.hashValue = StackHashProtection (stack); 
+    
+    StackResize (stack, dataSize == 0 ? 1 : dataSize);
 
     stack->info.errStatus = 0;
 
@@ -87,7 +94,7 @@ int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName,
 
 //---------------------------------------------------------------------------
 
-unsigned long long int StackHashProtection (Stack_t* stack)
+uint64_t StackHashProtection (Stack_t* stack)
 {  
     return HashProtection (stack, sizeof (Stack_t), stack->info.arrHashIgnore, stack->info.numHashIgnore);
 }
@@ -127,6 +134,8 @@ int StackErrHandler (Stack_t* stack)
 
     if (stack->info.hashValue != StackHashProtection (stack))
     {
+        stack->info.isStackValid = false;
+        
         stack->info.errStatus |= StackErrors::INVALID_HASH_VALUE;
     }
 
@@ -141,7 +150,7 @@ int StackErrPrint (Stack_t* stack, int indent)
 
     if (!stack->info.errStatus) return 1;
     
-    unsigned long long int errStatCopy = stack->info.errStatus;
+    uint64_t errStatCopy = stack->info.errStatus;
 
     int numLines = sizeof (ErrorLines) / sizeof (char*);
     
@@ -159,12 +168,12 @@ int StackErrPrint (Stack_t* stack, int indent)
 
 void _StackDump (Stack_t* stack)
 {
-    const char divideSym        = '=';
-    const int  numDividsersSyms = 70;
-    
     StackErrHandler (stack);
 
-    PrintfDividers (divideSym, numDividsersSyms, StackFileOut);
+    PrintSyms ('-', 25, StackFileOut);
+    fprintf (StackFileOut, "Start StackDump");
+    PrintSyms ('-', 25, StackFileOut);
+    fprintf (StackFileOut, "\n");
 
     fprintf (StackFileOut, "%s at %s(%d)\n", 
                             CurFuncName, 
@@ -201,6 +210,8 @@ void _StackDump (Stack_t* stack)
         {
             for (size_t i = 0; i < stack->capacity; i++)
             {
+                if (stack->info.errStatus & StackErrors::NULL_DATA_PTR) break;
+                
                 bool isEmpty = (i >= stack->size || stack->data[i] == StackDataPoisonValue);
             
                 fprintf (StackFileOut, "%*s%s[%lu] = ", 
@@ -223,7 +234,8 @@ void _StackDump (Stack_t* stack)
     }
     fputs ("}\n", StackFileOut);
 
-    PrintfDividers (divideSym, numDividsersSyms, StackFileOut);
+    PrintSyms ('-', 65, StackFileOut);
+    fprintf (StackFileOut, "\n");
 }
 
 //---------------------------------------------------------------------------
@@ -235,8 +247,7 @@ void StackResize (Stack_t* stack, size_t num)
     // No resize
     if (stack->capacity == num) return;
 
-    StackErrHandler (stack);
-    StackDump       (stack);
+    StackDump (stack);
 
     if (num <= 0) return;
     
@@ -268,12 +279,11 @@ void StackPush (Stack_t* stack, Elem_t value)
 {
     Assert (stack != NULL);
 
-    StackErrHandler (stack);
-    StackDump       (stack);
+    StackDump (stack);
 
     if(stack->size >= stack->capacity) 
     {
-        StackResize (stack, size_t((stack->capacity) * (stack->info.stepResizeUp)));
+        StackResize (stack, size_t((stack->capacity) * (stack->info.stepResize)));
     }
 
     stack->data[stack->size] = value;
@@ -291,16 +301,15 @@ Elem_t StackPop (Stack_t* stack)
 {
     Assert (stack != NULL, 0);
 
-    StackErrHandler (stack);
-    StackDump       (stack);
+    StackDump (stack);
 
     if (stack->size > 0) 
     {
         stack->size--;   
 
-        if (stack->capacity - stack->size > size_t(stack->capacity / stack->info.stepResizeDown))   
+        if (stack->size >= size_t(stack->capacity / (2*stack->info.stepResize)))   
         {
-            StackResize (stack, size_t(stack->capacity / stack->info.stepResizeDown));
+            StackResize (stack, size_t(stack->capacity / stack->info.stepResize));
         }  
 
         stack->info.hashValue = StackHashProtection (stack);
@@ -319,25 +328,14 @@ Elem_t StackPop (Stack_t* stack)
 
 //---------------------------------------------------------------------------
 
-void PutSpaces (int numSpaces, FILE* file)
-{
-    Assert (file != NULL);
-
-    fprintf (file, "%*s", numSpaces, "");
-}
-
-//---------------------------------------------------------------------------
-
-void PrintfDividers (char divideSym, int numDividers, FILE* file)
-{
-    Assert (file != NULL);
+int PrintSyms (char sym, int num, FILE* file)
+{   
+    if (file == NULL) return 0;
     
-    for (int i = 0; i < numDividers; i++)
+    for (int i = 0; i < num; i++)
     {
-        fputc (divideSym, file);
+        fputc (sym, file);
     }
-
-    fputc ('\n', file);
 }
 
 //---------------------------------------------------------------------------
@@ -382,20 +380,20 @@ size_t NumBytesHashIgnore (void* arr, HashIgnore* arrHashIgnore, size_t numHashI
 
 //---------------------------------------------------------------------------
 
-unsigned long long int HashProtection (void*  arr, 
-                                       size_t size, 
-                                       HashIgnore* arrHashIgnore,
-                                       size_t      numHashIgnore)
+uint64_t HashProtection (void*       arr, 
+                         size_t      size, 
+                         HashIgnore* arrHashIgnore,
+                         size_t      numHashIgnore)
 {
     Assert (arr != NULL, 0);
 
-    unsigned long long int hashValue = 0;
+    uint64_t hashValue = 0;
 
     for (size_t i = 0; i < size; i++) 
     {
         size_t numBytesHashIgnore = 0;
         
-        if (arr != NULL)
+        if (arrHashIgnore != NULL)
         {
             numBytesHashIgnore = NumBytesHashIgnore ((char*)arr + i, arrHashIgnore, numHashIgnore);
         }

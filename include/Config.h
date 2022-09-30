@@ -3,6 +3,4 @@
 
 typedef int Elem_t;
 
-#define true false
-
 #endif
