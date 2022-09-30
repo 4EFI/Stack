@@ -1,11 +1,14 @@
 
 //#define NDUMP
+//#define NHASH
+//#define NCANARY
 
 #include "Config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <malloc.h>
 
 #include "Stack.h"
 #include "Assert.h"
@@ -17,10 +20,10 @@ FILE* StackFileOut = NULL;
 
 //---------------------------------------------------------------------------
 
-Elem_t StackDataPoisonValue = 0xBAAAAAAD;
+Elem_t StackDataPoisonValue = 0x5EEDEAD;
 
-uint64_t StackLeftCanaryValue  = 0xBAADF00D;
-uint64_t StackRightCanaryValue = 0xDEADDEAD;
+uint64_t StackLeftCanaryValue  = 0xBAADF00D32DEAD32;
+uint64_t StackRightCanaryValue = 0xD0E0D76BB013927C; 
 
 //---------------------------------------------------------------------------
 
@@ -57,35 +60,50 @@ int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName,
 
     if (StackFileOut == NULL) StackFileOut = stderr;
 
+    #ifndef NCANARY
+
     // Canary left protection 
     stack->canaryLeft = StackLeftCanaryValue;
     // Canary right protection
     stack->canaryRight = StackRightCanaryValue;
+
+    #endif
 
     stack->info.mainFileName  = mainFileName;
     stack->info.mainFuncName  = mainFuncName;
     stack->info.mainStackName = mainStackName;
     stack->info.isStackValid  = true;
 
+    #ifndef NHASH
+
     stack->info.numHashIgnore = 2;
 
-    stack->info.arrHashIgnore = (HashIgnore*)calloc (stack->info.numHashIgnore, sizeof (HashIgnore));
-
-    stack->info.arrHashIgnore[0] = { &stack->info.hashValue, sizeof (uint64_t) };
-    stack->info.arrHashIgnore[1] = { &stack->info.errStatus, sizeof (uint64_t) };
+    static HashIgnore arrHashIgnore[2] = 
+    { 
+        (char*)(&stack->info.hashValue) - (char*)stack, sizeof (uint64_t),
+        (char*)(&stack->info.errStatus) - (char*)stack, sizeof (uint64_t) 
+    };
     
+    stack->info.arrHashIgnorePtr = arrHashIgnore;
+    
+    #endif
+
     stack->data            = NULL;
     stack->info.stepResize = 2;
     stack->size            = 0;
     stack->capacity        = 0;
 
+    #ifndef NHASH
     stack->info.hashValue = StackHashProtection (stack); 
-    
+    #endif
+
     StackResize (stack, dataSize == 0 ? 1 : dataSize);
 
     stack->info.errStatus = 0;
 
+    #ifndef NHASH
     stack->info.hashValue = StackHashProtection (stack); 
+    #endif
 
     StackDump (stack);
 
@@ -94,9 +112,54 @@ int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName,
 
 //---------------------------------------------------------------------------
 
+int StackDtor (Stack_t* stack)
+{
+    Assert (stack != NULL, 0);
+
+    #ifndef NCANARY
+    
+    // Canary left protection 
+    stack->canaryLeft  = 0;
+    // Canary right protection
+    stack->canaryRight = 0;
+    
+    #endif
+
+    stack->info.mainFileName  = NULL;
+    stack->info.mainFuncName  = NULL;
+    stack->info.mainStackName = NULL;
+    stack->info.isStackValid  = false;
+
+    #ifndef NHASH
+    stack->info.numHashIgnore = 0;
+    #endif
+    
+    stack->data            = NULL;
+    stack->info.stepResize = 0;
+    stack->size            = 0;
+    stack->capacity        = 0;
+    
+    stack->info.errStatus = 0;
+
+    free (stack->data);
+
+    stack->data = NULL;
+}
+
+//---------------------------------------------------------------------------
+
 uint64_t StackHashProtection (Stack_t* stack)
-{  
-    return HashProtection (stack, sizeof (Stack_t), stack->info.arrHashIgnore, stack->info.numHashIgnore);
+{   
+    #ifndef NHASH
+
+    return HashProtection (stack,       sizeof (Stack_t), stack->info.arrHashIgnorePtr, stack->info.numHashIgnore) +
+           HashProtection (stack->data, sizeof (Elem_t) * stack->capacity);
+
+    #else
+
+    return 0;
+
+    #endif
 }
 
 //---------------------------------------------------------------------------
@@ -122,6 +185,7 @@ int StackErrHandler (Stack_t* stack)
         stack->info.errStatus |= StackErrors::INVALID_CAPACITY;
     }
 
+    #ifndef NCANARY
     if (stack->canaryLeft != StackLeftCanaryValue)
     {
         stack->info.errStatus |= StackErrors::LEFT_CANARY_CHANGED;
@@ -131,13 +195,16 @@ int StackErrHandler (Stack_t* stack)
     {
         stack->info.errStatus |= StackErrors::RIGHT_CANARY_CHANGED;
     }
+    #endif
 
+    #ifndef NHASH
     if (stack->info.hashValue != StackHashProtection (stack))
     {
         stack->info.isStackValid = false;
         
         stack->info.errStatus |= StackErrors::INVALID_HASH_VALUE;
     }
+    #endif
 
     return 1;
 }
@@ -199,8 +266,10 @@ void _StackDump (Stack_t* stack)
 
     fputs ("{\n", StackFileOut);
     {
-    
-        fprintf (StackFileOut, "%*shashValue = %llu;\n",  TabSize, "", stack->info.hashValue);
+        #ifndef NHASH 
+        fprintf (StackFileOut, "%*shashValue = %lu;\n",   TabSize, "", stack->info.hashValue);
+        #endif
+
         fprintf (StackFileOut, "%*ssize      = %lu;\n",   TabSize, "", stack->size);
         fprintf (StackFileOut, "%*scapacity  = %lu;\n\n", TabSize, "", stack->capacity);
 
@@ -247,11 +316,9 @@ void StackResize (Stack_t* stack, size_t num)
     // No resize
     if (stack->capacity == num) return;
 
-    StackDump (stack);
-
     if (num <= 0) return;
     
-    stack->data = (Elem_t*)Recalloc (stack->data, stack->capacity, num, sizeof (Elem_t));
+    stack->data = (Elem_t*)Recalloc (stack->data, num, sizeof (Elem_t));
 
     // Fill data with poison (increase data)
     #ifndef NDUMP
@@ -268,7 +335,9 @@ void StackResize (Stack_t* stack, size_t num)
 
     stack->capacity = num;
 
+    #ifndef NHASH
     stack->info.hashValue = StackHashProtection (stack);
+    #endif
 
     StackDump (stack);
 }
@@ -279,7 +348,7 @@ void StackPush (Stack_t* stack, Elem_t value)
 {
     Assert (stack != NULL);
 
-    StackDump (stack);
+    if (stack->info.errStatus & StackErrors::NULL_DATA_PTR) return;
 
     if(stack->size >= stack->capacity) 
     {
@@ -290,7 +359,9 @@ void StackPush (Stack_t* stack, Elem_t value)
 
     stack->size++;
 
+    #ifndef NHASH
     stack->info.hashValue = StackHashProtection (stack);
+    #endif
     
     StackDump (stack);
 }
@@ -301,25 +372,29 @@ Elem_t StackPop (Stack_t* stack)
 {
     Assert (stack != NULL, 0);
 
-    StackDump (stack);
+    if (stack->info.errStatus & StackErrors::NULL_DATA_PTR) return 0;
 
     if (stack->size > 0) 
     {
         stack->size--;   
 
-        if (stack->size >= size_t(stack->capacity / (2*stack->info.stepResize)))   
+        if (stack->size <= size_t(stack->capacity / (2*stack->info.stepResize)))   
         {
             StackResize (stack, size_t(stack->capacity / stack->info.stepResize));
         }  
 
+        #ifndef NHASH
         stack->info.hashValue = StackHashProtection (stack);
+        #endif
         
         StackDump (stack);
 
         return stack->data[stack->size];
     }
 
+    #ifndef NHASH
     stack->info.hashValue = StackHashProtection (stack);
+    #endif
 
     StackDump (stack);
     
@@ -340,38 +415,37 @@ int PrintSyms (char sym, int num, FILE* file)
 
 //---------------------------------------------------------------------------
 
-void* Recalloc (void* arr, size_t curNum, size_t newNum, size_t size)
+void* Recalloc (void* arr, size_t newNum, size_t size)
 {
+    size_t curNum = _msize (arr);
+    
     if (curNum == newNum) return arr;
 
-    void* arrNew = NULL;
+    arr = (void*)realloc (arr, newNum * size);
 
-    if (newNum > 0) arrNew = calloc (newNum, size);
-
-    if (arrNew == NULL) return NULL;
-
-    if (arr != NULL) 
-    {  
-        memcpy (arrNew, arr, (curNum < newNum ? curNum : newNum) * size);
-        free   (arr);
+    if (curNum < newNum)
+    {
+        for (int i = curNum; i < newNum; i++)
+        {
+            ((char*)arr)[i] = 0;
+        }
     }
 
-    return arrNew;
+    return arr;
 }
 
 //---------------------------------------------------------------------------
 
-size_t NumBytesHashIgnore (void* arr, HashIgnore* arrHashIgnore, size_t numHashIgnore)
+size_t NumBytesHashIgnore (void* arrToComp, void* arr, HashIgnore* arrHashIgnorePtr, size_t numHashIgnore)
 {
-    Assert (arr           != NULL, 0);
-    Assert (arrHashIgnore != NULL, 0);
+    if (arr == NULL || arrHashIgnorePtr == NULL) return 0;
     
     // Check Hash Ignored
     for (size_t i = 0; i < numHashIgnore; i++)
     {
-        if ((char*)arr == arrHashIgnore[i].ignorePtr)
+        if (arrToComp == (arr + arrHashIgnorePtr[i].pos))
         {
-            return arrHashIgnore[i].size;  
+            return arrHashIgnorePtr[i].size;  
         }
     }
 
@@ -382,10 +456,10 @@ size_t NumBytesHashIgnore (void* arr, HashIgnore* arrHashIgnore, size_t numHashI
 
 uint64_t HashProtection (void*       arr, 
                          size_t      size, 
-                         HashIgnore* arrHashIgnore,
+                         HashIgnore* arrHashIgnorePtr,
                          size_t      numHashIgnore)
 {
-    Assert (arr != NULL, 0);
+    if (arr == NULL) return 0;
 
     uint64_t hashValue = 0;
 
@@ -393,9 +467,9 @@ uint64_t HashProtection (void*       arr,
     {
         size_t numBytesHashIgnore = 0;
         
-        if (arrHashIgnore != NULL)
+        if (arrHashIgnorePtr != NULL)
         {
-            numBytesHashIgnore = NumBytesHashIgnore ((char*)arr + i, arrHashIgnore, numHashIgnore);
+            numBytesHashIgnore = NumBytesHashIgnore ((char*)arr + i, (char*)arr, arrHashIgnorePtr, numHashIgnore);
         }
 
         if (numBytesHashIgnore > 0) 

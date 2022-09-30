@@ -139,7 +139,7 @@ void PrintCurTime (FILE* file)
 
     str[strlen(str) - 1] = '\0';
 
-    fprintf (LogFile, "%s", str);
+    fprintf (file, "%s", str);
 }
 
 //-----------------------------------------------------------------------------
