@@ -19,6 +19,22 @@ extern Elem_t StackDataPoisonValue;
 
 //---------------------------------------------------------------------------
 
+// No hash protection
+#ifndef NHASH
+    #define ON_HASH_PROTECTION(...)  __VA_ARGS__  
+#else
+    #define ON_HASH_PROTECTION(...) 
+#endif
+
+// No canary protection
+#ifndef NCANARY
+    #define ON_CANARY_PROTECTION(...) __VA_ARGS__  
+#else
+    #define ON_CANARY_PROTECTION(...) 
+#endif
+
+//---------------------------------------------------------------------------
+
 struct HashIgnore
 {
     size_t pos;
@@ -37,24 +53,21 @@ struct StackInfo
 
     uint64_t errStatus;
     
-    #ifndef NHASH
+    ON_HASH_PROTECTION
+    (
+        uint64_t hashValue;
 
-    uint64_t hashValue;
-
-    int numHashIgnore; 
-    HashIgnore* arrHashIgnorePtr;
-
-    #endif
+        int numHashIgnore; 
+        HashIgnore* arrHashIgnorePtr;
+    );
 
     bool isStackValid;
 };
 
 struct Stack_t
 {
-    #ifndef NCANARY
     // Canary left protection
-    uint64_t canaryLeft;
-    #endif
+    ON_CANARY_PROTECTION ( uint64_t canaryLeft; )
     
     StackInfo info;
     
@@ -63,10 +76,8 @@ struct Stack_t
     size_t size;
     size_t capacity;
 
-    #ifndef NCANARY
     // Canary right protection
-    uint64_t canaryRight;
-    #endif
+    ON_CANARY_PROTECTION ( uint64_t canaryRight; )
 };
 
 //---------------------------------------------------------------------------
@@ -81,13 +92,13 @@ void _StackDump (Stack_t* stack);
 
 uint64_t StackHashProtection (Stack_t* stack);
 
-int  StackErrHandler (Stack_t* stack);
-int  StackErrPrint   (Stack_t* stack, int indent = 0);
+int    StackErrHandler (Stack_t* stack);
+int    StackErrPrint   (Stack_t* stack, int indent = 0);
 
-void StackResize     (Stack_t* stack, size_t num);
+int    StackResize     (Stack_t* stack, bool sideResize, int numResize);
 
-void   StackPush     (Stack_t* stack, Elem_t value);    
-Elem_t StackPop      (Stack_t* stack);
+void   StackPush       (Stack_t* stack, Elem_t value);    
+Elem_t StackPop        (Stack_t* stack);
 
 //---------------------------------------------------------------------------
 
@@ -109,15 +120,12 @@ uint64_t HashProtection (void*       arr,
 #define StackCtor(stack, dataSize) { _StackCtor (stack, dataSize, __FILE__, __PRETTY_FUNCTION__, #stack); }
 
 #ifndef NDUMP
-
-#define StackDump(stack) { CurFileName = __FILE__;            \
-                           CurFuncName = __PRETTY_FUNCTION__; \
-                           CurLine     = __LINE__;            \
-                           _StackDump (stack); }
+    #define StackDump(stack) { CurFileName = __FILE__;            \
+                               CurFuncName = __PRETTY_FUNCTION__; \
+                               CurLine     = __LINE__;            \
+                               _StackDump (stack); }
 #else 
-
-#define StackDump(...) ;
-
+    #define StackDump(...) ;
 #endif
 
 //---------------------------------------------------------------------------

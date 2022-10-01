@@ -27,7 +27,7 @@ int main()
 
     StackDump (&stack);
 
-    StackPush (&stack, StackDataPoisonValue); // Cringeee Dump
+    //StackPush (&stack, StackDataPoisonValue); // Cringeee Dump
 
     StackPush (&stack, 8);
     StackPush (&stack, 6);
