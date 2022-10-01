@@ -16,7 +16,10 @@ int main()
     // Works
     //stack.info.mainFileName = "I glupoe jivotnoe";
     
-    //stack.data[1] = 100; // Works
+    //stack.canaryLeft  = 0; // Works
+    //stack.canaryRight = 0;
+    
+    //stack.data[1] = 100; // Works (after fixing)
 
     //stack.data = NULL; // Works
 
@@ -24,7 +27,7 @@ int main()
 
     StackDump (&stack);
 
-    //StackPush (&stack, StackDataPoisonValue); // Cringeee Dump
+    StackPush (&stack, StackDataPoisonValue); // Cringeee Dump
 
     StackPush (&stack, 8);
     StackPush (&stack, 6);

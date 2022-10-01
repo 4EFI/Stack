@@ -76,12 +76,14 @@ int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName,
 
     #ifndef NHASH
 
-    stack->info.numHashIgnore = 2;
+    stack->info.numHashIgnore = 4;
 
-    static HashIgnore arrHashIgnore[2] = 
+    static HashIgnore arrHashIgnore[4] = 
     { 
         (char*)(&stack->info.hashValue) - (char*)stack, sizeof (uint64_t),
-        (char*)(&stack->info.errStatus) - (char*)stack, sizeof (uint64_t) 
+        (char*)(&stack->info.errStatus) - (char*)stack, sizeof (uint64_t),
+        (char*)(&stack->canaryLeft)     - (char*)stack, sizeof (uint64_t),
+        (char*)(&stack->canaryRight)    - (char*)stack, sizeof (uint64_t)
     };
     
     stack->info.arrHashIgnorePtr = arrHashIgnore;
@@ -173,6 +175,8 @@ int StackErrHandler (Stack_t* stack)
     if (!stack->data) 
     {       
         stack->info.errStatus |= StackErrors::NULL_DATA_PTR;
+
+        stack->info.isStackValid = false;
     }
     
     if (stack->size < 0 || stack->size > stack->capacity)
@@ -348,7 +352,7 @@ void StackPush (Stack_t* stack, Elem_t value)
 {
     Assert (stack != NULL);
 
-    if (stack->info.errStatus & StackErrors::NULL_DATA_PTR) return;
+    if (!stack->info.isStackValid) return;
 
     if(stack->size >= stack->capacity) 
     {
@@ -372,7 +376,7 @@ Elem_t StackPop (Stack_t* stack)
 {
     Assert (stack != NULL, 0);
 
-    if (stack->info.errStatus & StackErrors::NULL_DATA_PTR) return 0;
+    if (!stack->info.isStackValid) return 0;
 
     if (stack->size > 0) 
     {
