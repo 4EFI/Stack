@@ -155,7 +155,7 @@ uint64_t StackHashProtection (Stack_t* stack)
 {   
     #ifndef NHASH
         return HashProtection (stack,       sizeof (Stack_t), stack->info.arrHashIgnorePtr, stack->info.numHashIgnore) +
-               HashProtection (stack->data, sizeof (Elem_t) /** stack->capacity */);
+               HashProtection (stack->data, sizeof (Elem_t));
     #else
         return 0;
     #endif
@@ -354,8 +354,6 @@ int StackResize (Stack_t* stack, bool sideResize, int numResize)
 
 void StackPush (Stack_t* stack, Elem_t value)
 {
-    //Assert (stack != NULL);
-
     if (!stack->info.isStackValid) return;
 
     if(stack->size >= stack->capacity) StackResize (stack, ResizeUp, 0);
@@ -373,8 +371,6 @@ void StackPush (Stack_t* stack, Elem_t value)
 
 Elem_t StackPop (Stack_t* stack)
 {
-    //Assert (stack != NULL, 0); 
-
     StackErrHandler (stack);
 
     if (!stack->info.isStackValid) return 0;
