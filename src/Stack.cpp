@@ -1,7 +1,7 @@
 
 //#define NDUMP
 //#define NHASH
-//#define NCANARY
+#define NCANARY
 
 #include "Config.h"
 
@@ -20,13 +20,13 @@ FILE* StackFileOut = NULL;
 
 //---------------------------------------------------------------------------
 
-Elem_t StackDataPoisonValue = 0x5EEDEAD;
+const Elem_t   StackDataPoisonValue  = 0x5EEDEAD;
 
-uint64_t StackLeftCanaryValue  = 0xBAADF00D32DEAD32;
-uint64_t StackRightCanaryValue = 0xD0E0D76BB013927C; 
+const uint64_t StackLeftCanaryValue  = 0xBAADF00D32DEAD32;
+const uint64_t StackRightCanaryValue = 0xD0E0D76BB013927C; 
 
-Elem_t DataLeftCanaryValue  = 0x32BAADF0032DDEAD;
-Elem_t DataRightCanaryValue = 0x39A3EE7561D89D5E; 
+const uint64_t DataLeftCanaryValue   = 0x32BAADF0032DDEAD;
+const uint64_t DataRightCanaryValue  = 0x39A3EE7561D89D5E; 
 
 //---------------------------------------------------------------------------
 
@@ -42,14 +42,20 @@ const int ResizeDown = -1;
 
 //---------------------------------------------------------------------------
 
+void StackRecalloc (Stack_t* stack, size_t size, uint64_t leftCanary, uint64_t rightCanary);
+
+//---------------------------------------------------------------------------
+
 enum StackErrors 
 {
-    NULL_DATA_PTR        = (1 << 0),
-    INVALID_SIZE         = (1 << 1),
-    INVALID_CAPACITY     = (1 << 2),
-    LEFT_CANARY_CHANGED  = (1 << 3),
-    RIGHT_CANARY_CHANGED = (1 << 4),
-    INVALID_HASH_VALUE   = (1 << 5)
+    NULL_DATA_PTR             = (1 << 0),
+    INVALID_SIZE              = (1 << 1),
+    INVALID_CAPACITY          = (1 << 2),
+    LEFT_CANARY_INVALID       = (1 << 3),
+    RIGHT_CANARY_INVALID      = (1 << 4),
+    INVALID_HASH_VALUE        = (1 << 5),
+    LEFT_DATA_CANARY_INVALID  = (1 << 6),
+    RIGHT_DATA_CANARY_INVALID = (1 << 7),
 };
 
 static const char* ErrorLines[] = {"Data null ptr",
@@ -57,13 +63,17 @@ static const char* ErrorLines[] = {"Data null ptr",
                                    "Invalid capacity",
                                    "Left canary was changed",
                                    "Right canary was changed",
-                                   "Hash was changed"};
+                                   "Hash was changed", 
+                                   "Left data canary was changed",
+                                   "Right data canary was changed",};
 
 int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName, 
                                               const char* mainFuncName, 
                                               const char* mainStackName)
 {   
     Assert (stack != NULL, 0);
+
+    if (dataSize <= 0) dataSize = 1;
 
     StackFileOut = LogFile;
 
@@ -80,6 +90,7 @@ int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName,
     stack->info.mainFileName  = mainFileName;
     stack->info.mainFuncName  = mainFuncName;
     stack->info.mainStackName = mainStackName;
+    stack->info.errStatus     = 0;
     stack->info.isStackValid  = true;
     
     ON_HASH_PROTECTION
@@ -89,9 +100,13 @@ int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName,
         static HashIgnore arrHashIgnore[4] = 
         { 
             (char*)(&stack->info.hashValue) - (char*)stack, sizeof (uint64_t),
-            (char*)(&stack->info.errStatus) - (char*)stack, sizeof (uint64_t),
+            (char*)(&stack->info.errStatus) - (char*)stack, sizeof (uint64_t)
+
+            ON_CANARY_PROTECTION 
+            (,
             (char*)(&stack->canaryLeft)     - (char*)stack, sizeof (uint64_t),
             (char*)(&stack->canaryRight)    - (char*)stack, sizeof (uint64_t)
+            )
         };
     
         stack->info.arrHashIgnorePtr = arrHashIgnore;
@@ -102,11 +117,10 @@ int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName,
     stack->size            = 0;
     stack->capacity        = 0;
 
-    ON_HASH_PROTECTION ( stack->info.hashValue = StackHashProtection (stack); )
+    StackRecalloc (stack, dataSize * sizeof (Elem_t), DataLeftCanaryValue, DataRightCanaryValue);
 
-    StackResize (stack, ResizeNum, dataSize == 0 ? 1 : dataSize);
-
-    stack->info.errStatus = 0;
+    LOG ("%llu", *((uint64_t*)((unsigned int)stack->data - sizeof (uint64_t))));
+    LOG ("%d", stack->data[0]);
 
     ON_HASH_PROTECTION ( stack->info.hashValue = StackHashProtection (stack); )
 
@@ -155,7 +169,7 @@ uint64_t StackHashProtection (Stack_t* stack)
 {   
     #ifndef NHASH
         return HashProtection (stack,       sizeof (Stack_t), stack->info.arrHashIgnorePtr, stack->info.numHashIgnore) +
-               HashProtection (stack->data, sizeof (Elem_t));
+               HashProtection (stack->data, sizeof (Elem_t) * stack->capacity);
     #else
         return 0;
     #endif
@@ -186,26 +200,28 @@ int StackErrHandler (Stack_t* stack)
         stack->info.errStatus |= StackErrors::INVALID_CAPACITY;
     }
 
-    #ifndef NCANARY
-    if (stack->canaryLeft != StackLeftCanaryValue)
-    {
-        stack->info.errStatus |= StackErrors::LEFT_CANARY_CHANGED;
-    }
+    ON_CANARY_PROTECTION 
+    (
+        if (stack->canaryLeft != StackLeftCanaryValue)
+        {
+            stack->info.errStatus |= StackErrors::LEFT_CANARY_INVALID;
+        }
 
-    if (stack->canaryRight != StackRightCanaryValue)
-    {
-        stack->info.errStatus |= StackErrors::RIGHT_CANARY_CHANGED;
-    }
-    #endif
+        if (stack->canaryRight != StackRightCanaryValue)
+        {
+            stack->info.errStatus |= StackErrors::RIGHT_CANARY_INVALID;
+        }
+    )
 
-    #ifndef NHASH
-    if (stack->info.hashValue != StackHashProtection (stack))
-    {
-        stack->info.isStackValid = false;
-        
-        stack->info.errStatus |= StackErrors::INVALID_HASH_VALUE;
-    }
-    #endif
+    ON_HASH_PROTECTION
+    (
+        if (stack->info.hashValue != StackHashProtection (stack))
+        {
+            stack->info.errStatus |= StackErrors::INVALID_HASH_VALUE;
+
+            stack->info.isStackValid = false;
+        }
+    )
 
     return 1;
 }
@@ -308,13 +324,15 @@ void _StackDump (Stack_t* stack)
 
 //---------------------------------------------------------------------------
 
-int StackResize (Stack_t* stack, bool sideResize, int numResize)
+int StackResize (Stack_t* stack, int numResize, bool sideResize)
 {
-    Assert (stack != NULL, 0); 
+    Assert          (stack != NULL, 0); 
+    StackErrHandler (stack); 
 
     switch (sideResize)
     {
     case ResizeNum:
+        if (numResize <= 0) return 0;
         break;
     
     case ResizeUp:
@@ -329,19 +347,11 @@ int StackResize (Stack_t* stack, bool sideResize, int numResize)
         return -1;
         break;
     }
-    
-    stack->data = (Elem_t*)Recalloc (stack->data, numResize /*ON_CANARY_PROTECTION (+ 2)*/, sizeof (Elem_t) );
+     
+    StackRecalloc (stack, numResize * sizeof (Elem_t), DataLeftCanaryValue, DataRightCanaryValue);
 
-    // Fill data with poison (increase data)
-    #ifndef NDUMP
-        if (stack->capacity < numResize)
-        {
-            for (size_t i = stack->capacity; i < numResize; i++)
-            {
-                stack->data[i] = StackDataPoisonValue;
-            }
-        }
-    #endif
+    //LOG ("%llu", *((uint64_t*)((unsigned int)stack->data - sizeof (uint64_t))));
+    //LOG ("%llu", *((uint64_t*)((unsigned int)stack->data + sizeof (Elem_t) * numResize)));
 
     stack->capacity = numResize;
     
@@ -352,11 +362,30 @@ int StackResize (Stack_t* stack, bool sideResize, int numResize)
 
 //---------------------------------------------------------------------------
 
+void StackRecalloc (Stack_t* stack, size_t size, uint64_t leftCanary, uint64_t rightCanary)
+{
+    #ifndef NCANARY
+        stack->data = (Elem_t*)CanaryRecalloc (stack->data, size, leftCanary, rightCanary); 
+    #else
+        stack->data = (Elem_t*)Recalloc       (stack->data, size);
+    #endif
+
+    // Fill data with poison (increase data)
+    #ifndef NDUMP
+
+    #endif
+}
+
+//---------------------------------------------------------------------------
+
 void StackPush (Stack_t* stack, Elem_t value)
 {
+    Assert          (stack != NULL); 
+    StackErrHandler (stack);
+
     if (!stack->info.isStackValid) return;
 
-    if(stack->size >= stack->capacity) StackResize (stack, ResizeUp, 0);
+    if(stack->size >= stack->capacity) StackResize (stack, 0, ResizeUp);
 
     stack->data[stack->size] = value;
 
@@ -371,6 +400,7 @@ void StackPush (Stack_t* stack, Elem_t value)
 
 Elem_t StackPop (Stack_t* stack)
 {
+    Assert          (stack != NULL, StackDataPoisonValue); 
     StackErrHandler (stack);
 
     if (!stack->info.isStackValid) return 0;
@@ -381,7 +411,7 @@ Elem_t StackPop (Stack_t* stack)
 
         if (stack->size <= size_t(stack->capacity / (2*stack->info.stepResize)))   
         {
-            StackResize (stack, ResizeDown, 0);
+            StackResize (stack, 0, ResizeDown);
         }  
 
         ON_HASH_PROTECTION ( stack->info.hashValue = StackHashProtection (stack); )
@@ -412,17 +442,17 @@ int PrintSyms (char sym, int num, FILE* file)
 
 //---------------------------------------------------------------------------
 
-void* Recalloc (void* arr, size_t newNum, size_t size)
-{
+void* Recalloc (void* arr, size_t size)
+{   
     size_t curNum = _msize (arr);
     
-    if (curNum == newNum) return arr;
+    if (curNum == size) return arr;
 
-    arr = (void*)realloc (arr, newNum * size);
+    arr = (void*)realloc (arr, size);
 
-    if (curNum < newNum)
+    if (curNum < size)
     {
-        for (int i = curNum; i < newNum; i++)
+        for (int i = curNum; i < size; i++)
         {
             ((char*)arr)[i] = 0;
         }
@@ -480,6 +510,56 @@ uint64_t HashProtection (void*       arr,
     }
 
     return hashValue;
+}
+
+//---------------------------------------------------------------------------
+
+int CanaryDataSet (void* data, size_t size, uint64_t leftCanary, uint64_t rightCanary)
+{   
+    Assert (data != NULL, -1);
+
+    memcpy ((char*)data - sizeof (uint64_t), &leftCanary,  sizeof (uint64_t));
+    memcpy ((char*)data + size,              &rightCanary, sizeof (uint64_t)); 
+}
+
+//---------------------------------------------------------------------------
+
+void* CanaryRecalloc (void* data, size_t size, uint64_t leftCanary, uint64_t rightCanary)
+{
+    if ((size_t)data <= 0) data = 0;
+
+    if ((unsigned int)data > sizeof (uint64_t)) 
+    { 
+       data = (void*)((unsigned int)data - sizeof (uint64_t));
+    } 
+    
+    data = Recalloc (data, size + 2 * sizeof (uint64_t));
+
+    data = (void*)((unsigned int)data + sizeof (uint64_t));
+
+    // Set canaries
+    CanaryDataSet (data, size, leftCanary, rightCanary);
+
+    LOG ("asdfasfsfasf");
+
+    return data;
+}
+
+//---------------------------------------------------------------------------
+
+int FillArray (void* arr, size_t num, size_t size, void* value, size_t sizeVal)
+{
+    /*
+    Assert (arr   != NULL, 0);
+    Assert (value != NULL, 0);
+    
+    for (size_t i = 0; i < num; i++)
+    {
+        memcpy (arr + i * size, value, sizeVal);
+    }
+    */
+
+    return 1;
 }
 
 //---------------------------------------------------------------------------

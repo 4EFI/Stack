@@ -15,7 +15,15 @@ extern const char* CurFileName;
 extern const char* CurFuncName;
 extern int         CurLine;
 
-extern Elem_t StackDataPoisonValue;
+//---------------------------------------------------------------------------
+
+extern const Elem_t StackDataPoisonValue;
+
+//---------------------------------------------------------------------------
+
+extern const int ResizeUp;
+extern const int ResizeNum;
+extern const int ResizeDown;
 
 //---------------------------------------------------------------------------
 
@@ -31,6 +39,13 @@ extern Elem_t StackDataPoisonValue;
     #define ON_CANARY_PROTECTION(...) __VA_ARGS__  
 #else
     #define ON_CANARY_PROTECTION(...) 
+#endif
+
+// No dump
+#ifndef NDUMP 
+    #define ON_DUMP(...) __VA_ARGS__
+#else
+    #define ON_DUMP(...)
 #endif
 
 //---------------------------------------------------------------------------
@@ -95,7 +110,7 @@ uint64_t StackHashProtection (Stack_t* stack);
 int    StackErrHandler (Stack_t* stack);
 int    StackErrPrint   (Stack_t* stack, int indent = 0);
 
-int    StackResize     (Stack_t* stack, bool sideResize, int numResize);
+int    StackResize     (Stack_t* stack, int numResize, bool sideResize = ResizeNum);
 
 void   StackPush       (Stack_t* stack, Elem_t value);    
 Elem_t StackPop        (Stack_t* stack);
@@ -106,7 +121,7 @@ int PrintSyms (char sym, int num, FILE* file);
 
 //---------------------------------------------------------------------------
 
-void* Recalloc (void* arr, size_t newNum, size_t size);
+void* Recalloc (void* arr, size_t size);
 
 size_t NumBytesHashIgnore (void* arrToComp, void* arr, HashIgnore* arrHashIgnorePtr, size_t numHashIgnore);
 
@@ -114,6 +129,11 @@ uint64_t HashProtection (void*       arr,
                          size_t      size, 
                          HashIgnore* arrHashIgnore = NULL,
                          size_t      numHashIgnore = 0);
+
+int   CanaryDataSet  (void* data, size_t size, uint64_t leftCanary, uint64_t rightCanary);
+void* CanaryRecalloc (void* data, size_t size, uint64_t leftCanary, uint64_t rightCanary);
+
+int FillArray (void* arr, size_t num, size_t size, void* value, size_t sizeVal);
 
 //---------------------------------------------------------------------------
 

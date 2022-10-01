@@ -13,16 +13,6 @@ int main()
     Stack_t     stack = {0};
     StackCtor (&stack, 2);
 
-    // Works
-    //stack.info.mainFileName = "I glupoe jivotnoe";
-    
-    //stack.canaryLeft  = 0; // Works
-    //stack.canaryRight = 0;
-    
-    //stack.data[1] = 100; // Works (after fixing)
-
-    //stack.data = NULL; // Works
-
     //stack.data = (Elem_t*)1; // Cringeeeeee
 
     StackDump (&stack);
