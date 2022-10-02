@@ -119,9 +119,6 @@ int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName,
 
     StackRecalloc (stack, dataSize * sizeof (Elem_t), DataLeftCanaryValue, DataRightCanaryValue);
 
-    LOG ("%llu", *((uint64_t*)((unsigned int)stack->data - sizeof (uint64_t))));
-    LOG ("%d", stack->data[0]);
-
     ON_HASH_PROTECTION ( stack->info.hashValue = StackHashProtection (stack); )
 
     StackDump (stack);
@@ -148,7 +145,6 @@ int StackDtor (Stack_t* stack)
     stack->info.mainStackName = NULL;
     stack->info.isStackValid  = false;
 
-    
     ON_HASH_PROTECTION ( stack->info.numHashIgnore = 0; )
 
     stack->data            = NULL;
@@ -161,12 +157,16 @@ int StackDtor (Stack_t* stack)
     free (stack->data);
 
     stack->data = NULL;
+
+    return 1;
 }
 
 //---------------------------------------------------------------------------
 
 uint64_t StackHashProtection (Stack_t* stack)
 {   
+    Assert (stack != NULL, 0);
+    
     #ifndef NHASH
         return HashProtection (stack,       sizeof (Stack_t), stack->info.arrHashIgnorePtr, stack->info.numHashIgnore) +
                HashProtection (stack->data, sizeof (Elem_t) * stack->capacity);
@@ -179,7 +179,7 @@ uint64_t StackHashProtection (Stack_t* stack)
 
 int StackErrHandler (Stack_t* stack)
 {
-    Assert (stack != NULL, 0);
+    Assert (stack != NULL, -1);
     
     stack->info.errStatus = 0;    
     
@@ -202,6 +202,7 @@ int StackErrHandler (Stack_t* stack)
 
     ON_CANARY_PROTECTION 
     (
+        // Stack canaries
         if (stack->canaryLeft != StackLeftCanaryValue)
         {
             stack->info.errStatus |= StackErrors::LEFT_CANARY_INVALID;
@@ -210,6 +211,20 @@ int StackErrHandler (Stack_t* stack)
         if (stack->canaryRight != StackRightCanaryValue)
         {
             stack->info.errStatus |= StackErrors::RIGHT_CANARY_INVALID;
+        }
+
+        if (stack->info.errStatus & StackErrors::INVALID_CAPACITY || 
+            stack->info.errStatus & StackErrors::NULL_DATA_PTR) return 0;
+
+        // Data canaries
+        if (*((uint64_t*)(int64_t(stack->data) - sizeof (uint64_t)                )) != DataLeftCanaryValue)
+        {
+            stack->info.errStatus |= StackErrors::LEFT_DATA_CANARY_INVALID;
+        }
+
+        if (*((uint64_t*)(int64_t(stack->data) + sizeof (Elem_t) * stack->capacity)) != DataRightCanaryValue)
+        {
+            stack->info.errStatus |= StackErrors::RIGHT_DATA_CANARY_INVALID;
         }
     )
 
@@ -324,7 +339,7 @@ void _StackDump (Stack_t* stack)
 
 //---------------------------------------------------------------------------
 
-int StackResize (Stack_t* stack, int numResize, bool sideResize)
+int StackResize (Stack_t* stack, int numResize, int sideResize)
 {
     Assert          (stack != NULL, 0); 
     StackErrHandler (stack); 
@@ -350,14 +365,13 @@ int StackResize (Stack_t* stack, int numResize, bool sideResize)
      
     StackRecalloc (stack, numResize * sizeof (Elem_t), DataLeftCanaryValue, DataRightCanaryValue);
 
-    //LOG ("%llu", *((uint64_t*)((unsigned int)stack->data - sizeof (uint64_t))));
-    //LOG ("%llu", *((uint64_t*)((unsigned int)stack->data + sizeof (Elem_t) * numResize)));
-
     stack->capacity = numResize;
     
     ON_HASH_PROTECTION ( stack->info.hashValue = StackHashProtection (stack); )
 
     StackDump (stack);
+
+    return stack->capacity;
 }
 
 //---------------------------------------------------------------------------
@@ -369,6 +383,8 @@ void StackRecalloc (Stack_t* stack, size_t size, uint64_t leftCanary, uint64_t r
     #else
         stack->data = (Elem_t*)Recalloc       (stack->data, size);
     #endif
+
+    if (stack->data != NULL) stack->capacity = size_t(size / sizeof (Elem_t));
 
     // Fill data with poison (increase data)
     #ifndef NDUMP
@@ -438,39 +454,20 @@ int PrintSyms (char sym, int num, FILE* file)
     {
         fputc (sym, file);
     }
-}
 
-//---------------------------------------------------------------------------
-
-void* Recalloc (void* arr, size_t size)
-{   
-    size_t curNum = _msize (arr);
-    
-    if (curNum == size) return arr;
-
-    arr = (void*)realloc (arr, size);
-
-    if (curNum < size)
-    {
-        for (int i = curNum; i < size; i++)
-        {
-            ((char*)arr)[i] = 0;
-        }
-    }
-
-    return arr;
+    return num;
 }
 
 //---------------------------------------------------------------------------
 
 size_t NumBytesHashIgnore (void* arrToComp, void* arr, HashIgnore* arrHashIgnorePtr, size_t numHashIgnore)
 {
-    if (arr == NULL || arrHashIgnorePtr == NULL) return 0;
+    if (arrHashIgnorePtr == NULL) return 0;
     
     // Check Hash Ignored
     for (size_t i = 0; i < numHashIgnore; i++)
     {
-        if (arrToComp == (arr + arrHashIgnorePtr[i].pos))
+        if (arrToComp == (void*)(arr + arrHashIgnorePtr[i].pos))
         {
             return arrHashIgnorePtr[i].size;  
         }
@@ -520,29 +517,58 @@ int CanaryDataSet (void* data, size_t size, uint64_t leftCanary, uint64_t rightC
 
     memcpy ((char*)data - sizeof (uint64_t), &leftCanary,  sizeof (uint64_t));
     memcpy ((char*)data + size,              &rightCanary, sizeof (uint64_t)); 
+
+    return 1;
 }
 
 //---------------------------------------------------------------------------
 
 void* CanaryRecalloc (void* data, size_t size, uint64_t leftCanary, uint64_t rightCanary)
 {
-    if ((size_t)data <= 0) data = 0;
+    if (int64_t(data) <= 0) data = 0;
 
-    if ((unsigned int)data > sizeof (uint64_t)) 
+    if (int64_t(data) > sizeof (uint64_t)) 
     { 
-       data = (void*)((unsigned int)data - sizeof (uint64_t));
+       data = (void*)(int64_t(data) - sizeof (uint64_t));
     } 
     
     data = Recalloc (data, size + 2 * sizeof (uint64_t));
 
-    data = (void*)((unsigned int)data + sizeof (uint64_t));
+    data = (void*)(int64_t(data) + sizeof (uint64_t));
 
     // Set canaries
     CanaryDataSet (data, size, leftCanary, rightCanary);
 
-    LOG ("asdfasfsfasf");
-
     return data;
+}
+
+//---------------------------------------------------------------------------
+
+void* Recalloc (void* arr, size_t size)
+{   
+    size_t curNum = 0;
+    
+    #ifdef linux
+        curNum = malloc_usable_size (arr);
+    #else
+        curNum = _msize (arr);
+    #endif
+
+    //LOG ("%u", curNum);
+
+    if (curNum == size) return arr;
+
+    arr = (void*)realloc (arr, size);
+
+    if (curNum < size)
+    {
+        for (int i = curNum; i < size; i++)
+        {
+            ((char*)arr)[i] = 0;
+        }
+    }
+
+    return arr;
 }
 
 //---------------------------------------------------------------------------

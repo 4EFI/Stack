@@ -110,7 +110,7 @@ uint64_t StackHashProtection (Stack_t* stack);
 int    StackErrHandler (Stack_t* stack);
 int    StackErrPrint   (Stack_t* stack, int indent = 0);
 
-int    StackResize     (Stack_t* stack, int numResize, bool sideResize = ResizeNum);
+int    StackResize     (Stack_t* stack, int numResize, int sideResize = ResizeNum);
 
 void   StackPush       (Stack_t* stack, Elem_t value);    
 Elem_t StackPop        (Stack_t* stack);

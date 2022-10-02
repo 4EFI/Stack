@@ -13,6 +13,10 @@ int main()
     Stack_t     stack = {0};
     StackCtor (&stack, 2);
 
+    //stack.capacity = 5;
+
+    LOG ("%d", stack.capacity);
+
     //stack.data = (Elem_t*)1; // Cringeeeeee
 
     StackDump (&stack);
