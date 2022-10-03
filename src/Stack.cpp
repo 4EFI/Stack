@@ -173,6 +173,13 @@ uint64_t StackHashProtection (Stack_t* stack)
 
 //---------------------------------------------------------------------------
 
+uint64_t StackIsValid (Stack_t* stack)
+{
+    return stack->info.errStatus;
+}
+
+//---------------------------------------------------------------------------
+
 int StackErrHandler (Stack_t* stack)
 {
     Assert (stack != NULL, -1);
@@ -295,10 +302,10 @@ void _StackDump (Stack_t* stack)
 
     fputs ("{\n", StackFileOut);
     {
-        ON_HASH_PROTECTION ( fprintf (StackFileOut, "%*shashValue = %lu;\n",   TabSize, "", stack->info.hashValue); )
+        ON_HASH_PROTECTION ( fprintf (StackFileOut, "%*shashValue = %llu;\n",   TabSize, "", stack->info.hashValue); )
 
-        fprintf (StackFileOut, "%*ssize      = %lu;\n",   TabSize, "", stack->size);
-        fprintf (StackFileOut, "%*scapacity  = %lu;\n\n", TabSize, "", stack->capacity);
+        fprintf (StackFileOut, "%*ssize      = %u;\n",   TabSize, "", stack->size);
+        fprintf (StackFileOut, "%*scapacity  = %u;\n\n", TabSize, "", stack->capacity);
 
         fprintf (StackFileOut, "%*sdata[%p]\n", TabSize, "", stack->data);
 
@@ -310,7 +317,7 @@ void _StackDump (Stack_t* stack)
                 
                 bool isEmpty = (i >= stack->size);
             
-                fprintf (StackFileOut, "%*s%s[%lu] = ", 
+                fprintf (StackFileOut, "%*s%s[%u] = ", 
                                         TabSize * 2, "",  
                                         isEmpty ? " " : "*", i);
 
@@ -475,7 +482,7 @@ size_t NumBytesHashIgnore (void* arrToComp, void* arr, HashIgnore* arrHashIgnore
     // Check Hash Ignored
     for (size_t i = 0; i < numHashIgnore; i++)
     {
-        if (arrToComp == (void*)(arr + arrHashIgnorePtr[i].pos))
+        if (arrToComp == (void*)(int64_t(arr) + arrHashIgnorePtr[i].pos))
         {
             return arrHashIgnorePtr[i].size;  
         }
@@ -557,13 +564,13 @@ void* Recalloc (void* data, size_t size, int curSize)
     if (curSize == 0) curSize = MallocSize (data);
     if (curSize <  0) curSize = 0;
 
-    if (curSize == size) return data;
+    if (size_t(curSize) == size) return data;
 
     data = (void*)realloc (data, size);
 
-    if (curSize < size)
+    if (size_t(curSize) < size)
     {
-        memset (data + curSize, 0, size - curSize);
+        memset ((char*)data + curSize, 0, size - curSize);
     }
 
     return data;

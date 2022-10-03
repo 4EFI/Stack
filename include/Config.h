@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-
 //#define NDUMP
 //#define NHASH
 //#define NCANARY

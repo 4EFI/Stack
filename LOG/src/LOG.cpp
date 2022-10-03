@@ -7,7 +7,7 @@
 #ifdef _WIN32
     #include <io.h>
 
-#elif __linux__
+#elif defined (__linux__)
    #include <inttypes.h>
    #include <unistd.h>
 

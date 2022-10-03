@@ -100,12 +100,11 @@ struct Stack_t
 int  _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName, 
                                                const char* mainFuncName, 
                                                const char* mainStackName);
-
 int   StackDtor (Stack_t* stack);
-
 void _StackDump (Stack_t* stack);
 
 uint64_t StackHashProtection (Stack_t* stack);
+uint64_t StackIsValid        (Stack_t* stack); 
 
 int    StackErrHandler (Stack_t* stack);
 int    StackErrPrint   (Stack_t* stack, int indent = 0);
