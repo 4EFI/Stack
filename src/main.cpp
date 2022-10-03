@@ -11,9 +11,10 @@
 int main()
 {   
     Stack_t     stack = {0};
-    StackCtor (&stack, 0);
+    StackCtor (&stack, 2);
 
     //stack.data[-1] = 0;
+    //stack.data[3] = 0;
 
     //stack.data = (Elem_t*)1; // Cringeeeeee
 

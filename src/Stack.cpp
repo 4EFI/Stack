@@ -61,7 +61,7 @@ static const char* ErrorLines[] = {"Data null ptr",
                                    "Right canary was changed",
                                    "Hash was changed", 
                                    "Left data canary was changed",
-                                   "Right data canary was changed",};
+                                   "Right data canary was changed"};
 
 int _StackCtor (Stack_t* stack, int dataSize, const char* mainFileName, 
                                               const char* mainFuncName, 
@@ -220,7 +220,6 @@ int StackErrHandler (Stack_t* stack)
             stack->info.errStatus & StackErrors::NULL_DATA_PTR) return 0;
 
         // Data canaries
-        // *((uint64_t*)stack->data - 1)
         if (*((uint64_t*)(int64_t(stack->data) - sizeof (uint64_t)                )) != DataLeftCanaryValue)
         {
             stack->info.errStatus |= StackErrors::LEFT_DATA_CANARY_INVALID;
