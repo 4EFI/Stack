@@ -1,8 +1,4 @@
 
-//#define NDUMP
-//#define NHASH
-#define NCANARY
-
 #include "Config.h"
 
 #include <stdio.h>
@@ -217,6 +213,7 @@ int StackErrHandler (Stack_t* stack)
             stack->info.errStatus & StackErrors::NULL_DATA_PTR) return 0;
 
         // Data canaries
+        // *((uint64_t*)stack->data - 1)
         if (*((uint64_t*)(int64_t(stack->data) - sizeof (uint64_t)                )) != DataLeftCanaryValue)
         {
             stack->info.errStatus |= StackErrors::LEFT_DATA_CANARY_INVALID;
@@ -311,7 +308,7 @@ void _StackDump (Stack_t* stack)
             {
                 if (stack->info.errStatus & StackErrors::NULL_DATA_PTR) break;
                 
-                bool isEmpty = (i >= stack->size || stack->data[i] == StackDataPoisonValue);
+                bool isEmpty = (i >= stack->size);
             
                 fprintf (StackFileOut, "%*s%s[%lu] = ", 
                                         TabSize * 2, "",  
@@ -384,12 +381,23 @@ void StackRecalloc (Stack_t* stack, size_t size, uint64_t leftCanary, uint64_t r
         stack->data = (Elem_t*)Recalloc       (stack->data, size);
     #endif
 
-    if (stack->data != NULL) stack->capacity = size_t(size / sizeof (Elem_t));
+    size_t newStackCapacity = size_t(size / sizeof (Elem_t));
+    
+    if (stack->data != NULL) 
+    {
+        // Fill data with poison (increase data)
+        #ifndef NDUMP
+            if (stack->capacity < newStackCapacity)
+            {
+                for (size_t i = stack->capacity; i < newStackCapacity; i++)
+                {
+                    stack->data[i] = StackDataPoisonValue;
+                }
+            }
+        #endif
 
-    // Fill data with poison (increase data)
-    #ifndef NDUMP
-
-    #endif
+        stack->capacity = newStackCapacity;
+    }
 }
 
 //---------------------------------------------------------------------------
@@ -531,8 +539,8 @@ void* CanaryRecalloc (void* data, size_t size, uint64_t leftCanary, uint64_t rig
     { 
        data = (void*)(int64_t(data) - sizeof (uint64_t));
     } 
-    
-    data = Recalloc (data, size + 2 * sizeof (uint64_t));
+
+    data = Recalloc (data, size + 2 * sizeof (uint64_t), MallocSize (data) - sizeof (uint64_t));
 
     data = (void*)(int64_t(data) + sizeof (uint64_t));
 
@@ -544,48 +552,38 @@ void* CanaryRecalloc (void* data, size_t size, uint64_t leftCanary, uint64_t rig
 
 //---------------------------------------------------------------------------
 
-void* Recalloc (void* arr, size_t size)
+void* Recalloc (void* data, size_t size, int curSize)
 {   
-    size_t curNum = 0;
-    
-    #ifdef linux
-        curNum = malloc_usable_size (arr);
-    #else
-        curNum = _msize (arr);
-    #endif
+    if (curSize == 0) curSize = MallocSize (data);
+    if (curSize <  0) curSize = 0;
 
-    //LOG ("%u", curNum);
+    if (curSize == size) return data;
 
-    if (curNum == size) return arr;
+    data = (void*)realloc (data, size);
 
-    arr = (void*)realloc (arr, size);
-
-    if (curNum < size)
+    if (curSize < size)
     {
-        for (int i = curNum; i < size; i++)
-        {
-            ((char*)arr)[i] = 0;
-        }
+        memset (data + curSize, 0, size - curSize);
     }
 
-    return arr;
+    return data;
 }
 
 //---------------------------------------------------------------------------
 
-int FillArray (void* arr, size_t num, size_t size, void* value, size_t sizeVal)
+size_t MallocSize (void* data)
 {
-    /*
-    Assert (arr   != NULL, 0);
-    Assert (value != NULL, 0);
+    size_t curNum = 0;
     
-    for (size_t i = 0; i < num; i++)
-    {
-        memcpy (arr + i * size, value, sizeVal);
-    }
-    */
+    #ifdef linux
+        curNum = malloc_usable_size (data);
+    #else
+        curNum = _msize (data);
+    #endif
 
-    return 1;
+    if (data == NULL) curNum = 0;
+
+    return curNum;
 }
 
 //---------------------------------------------------------------------------

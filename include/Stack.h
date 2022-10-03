@@ -121,8 +121,6 @@ int PrintSyms (char sym, int num, FILE* file);
 
 //---------------------------------------------------------------------------
 
-void* Recalloc (void* arr, size_t size);
-
 size_t NumBytesHashIgnore (void* arrToComp, void* arr, HashIgnore* arrHashIgnorePtr, size_t numHashIgnore);
 
 uint64_t HashProtection (void*       arr, 
@@ -130,10 +128,10 @@ uint64_t HashProtection (void*       arr,
                          HashIgnore* arrHashIgnore = NULL,
                          size_t      numHashIgnore = 0);
 
-int   CanaryDataSet  (void* data, size_t size, uint64_t leftCanary, uint64_t rightCanary);
-void* CanaryRecalloc (void* data, size_t size, uint64_t leftCanary, uint64_t rightCanary);
-
-int FillArray (void* arr, size_t num, size_t size, void* value, size_t sizeVal);
+int    CanaryDataSet  (void* data, size_t size, uint64_t leftCanary, uint64_t rightCanary);
+void*  CanaryRecalloc (void* data, size_t size, uint64_t leftCanary, uint64_t rightCanary);
+void*  Recalloc       (void* data, size_t size, int      curSize = 0);
+size_t MallocSize     (void* data);
 
 //---------------------------------------------------------------------------
 
